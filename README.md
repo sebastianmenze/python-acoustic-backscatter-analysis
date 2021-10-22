@@ -7,4 +7,4 @@ https://github.com/iambaim/pyEcholab/tree/fixes_for_crimac
 
 to clean the echograms and detect swarm, use functions from echopy:
 
-https://github.com/bas-acoustics/echopy
+https://github.com/open-ocean-sounding/echopy
