@@ -2,7 +2,7 @@
 
 This python scripts runs over a set of .raw files, reads the echograms and removes noise from faulty pings, the sea floor and range dependent noise. Than I am using the "cv2.findContours" function (https://opencv.org/) to outline regions (krill swarms) in the echograms with a backscatter higher than -70 dB. These contour lines are compressed to the shorted possible length.
 
-When the patches are large enough (>10 pixels) I store the outlines as 16 bit floating point numbers in a .pkl file, that can than be send via Iridium or the like. The contours are saves as python list in this format:
+When the patches are large enough (>10 pixels) I store the outlines as 16 bit floating point numbers in a .pkl file, that can than be send via Iridium or the like. The contours are saves as python dict in this format:
 
 ```
    contourdict= {"id":[],"sv":[],"time_s":[],"depth_m":[],"timelimits":[],"depthlimits":[]}  
