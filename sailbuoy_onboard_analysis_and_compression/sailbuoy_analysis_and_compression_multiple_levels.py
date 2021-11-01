@@ -160,8 +160,8 @@ for rawfile in rawfiles:
    
    sv_clean, m120in_ = mask_impulse.wang( np.transpose(sv.values), thr=(-90,-30), erode=[(5,5)],dilate=[(7,7)], median=[(7,7)])                     
  
-   # m=mask_seabed.ariza( sv_clean, r, r0=10, r1=1000, roff=0, thr=-40, ec=1, ek=(1,3), dc=10, dk=(3,7) )
-   # sv_clean[ m]=-999
+   m=mask_seabed.ariza( sv_clean, r, r0=10, r1=1000, roff=10, thr=-40, ec=1,  ek=(1,3), dc=10, dk=(3,7) )
+   sv_clean[ m]=-999
    
    attenuation=cal_obj.absorption_coefficient
    # rr           = np.arange(len(r))                
@@ -235,9 +235,9 @@ for rawfile in rawfiles:
        z=sv_smooth>=clevel
        image_8bit = np.uint8(z * 255)
        
-       kernel = np.ones((5,5),np.uint8)
-       image_8bit = cv2.morphologyEx(image_8bit, cv2.MORPH_OPEN, kernel)
-       image_8bit = cv2.morphologyEx(image_8bit, cv2.MORPH_CLOSE, kernel)
+       # kernel = np.ones((5,5),np.uint8)
+       # image_8bit = cv2.morphologyEx(image_8bit, cv2.MORPH_OPEN, kernel)
+       # image_8bit = cv2.morphologyEx(image_8bit, cv2.MORPH_CLOSE, kernel)
 
        contours, hierarchy = cv2.findContours(image_8bit, cv2.RETR_EXTERNAL , cv2.CHAIN_APPROX_SIMPLE)
        # clines_dict[clevel]=contours
