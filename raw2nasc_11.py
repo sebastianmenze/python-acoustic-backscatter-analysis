@@ -61,6 +61,7 @@ import cartopy as cart
 
 from matplotlib.colors import ListedColormap
 import re
+import traceback
 
 
 
@@ -104,8 +105,8 @@ class Worker(QtCore.QThread):
             # look for already processed data
             self.df_files['to_do']=True    
             
-            if os.path.isfile('list_of_files.csv'):
-                df_files_done =  pd.read_csv('list_of_files.csv',index_col=0)
+            if os.path.isfile('list_of_rawfiles.csv'):
+                df_files_done =  pd.read_csv('list_of_rawfiles.csv',index_col=0)
                 df_files_done=df_files_done.loc[ df_files_done['to_do']==False,: ]
             
                 names = self.df_files['path'].apply(lambda x: Path(x).stem)       
@@ -132,6 +133,8 @@ class Worker(QtCore.QThread):
             self.not_processing=True
 
     def process(self):
+        
+        
 
         echogram=pd.DataFrame([])    
         positions=pd.DataFrame([])    
@@ -143,6 +146,9 @@ class Worker(QtCore.QThread):
                 rawfile=row['path']
                 print('working on '+rawfile)
                 try:
+                    
+                    # breakpoint()
+                    
                     echogram_file, positions_file = self.read_raw(rawfile)
                     
                     
@@ -168,7 +174,7 @@ class Worker(QtCore.QThread):
                         positions = positions.iloc[ix_end::,:]
                         t=echogram.index
 
-                        
+                        # try:
                         df_nasc_file, df_sv_swarm = self.detect_krill_swarms(new_echogram,new_positions)   
                         name = t.min().strftime('D%Y%m%d-T%H%M%S' )         
                         
@@ -178,12 +184,14 @@ class Worker(QtCore.QThread):
                         df_nasc_file.to_csv( name + '_nasctable.csv'  )
                         df_sv_swarm.to_hdf( name + '_sv_swarm.h5', key='df', mode='w'  )
                         # self.df_files.loc[i,'to_do'] = False
-                    
+                        # except Exception as e:
+                        #   print(e)                      
                     self.df_files.loc[index,'to_do']=False            
-                    self.df_files.to_csv('list_of_files.csv')
+                    self.df_files.to_csv('list_of_rawfiles.csv')
                    
                 except Exception as e:
                     print(e)               
+                    print(traceback.format_exc())
 
     def start(self):
         print('go')
@@ -285,7 +293,9 @@ class Worker(QtCore.QThread):
             
     def detect_krill_swarms(self,sv,positions):
          # sv= self.echodata[rawfile][ 120000.0] 
-         # sv= self.ekdata[ 120000.0]                    
+         # sv= self.ekdata[ 120000.0]          
+         # breakpoint()
+              
          t120 =sv.index
          r120 =sv.columns.values
 
@@ -320,7 +330,7 @@ class Worker(QtCore.QThread):
           # print('df_sv')
          
          df_nasc_file=pd.DataFrame([])
-         df_nasc_file['time']=positions['ping_time']
+         # df_nasc_file['time']=positions['ping_time']
          df_nasc_file['lat']=positions['latitude']
          df_nasc_file['lon']=positions['longitude']
          df_nasc_file['distance_m']=np.append(np.array([0]),geod.line_lengths(lons=positions['longitude'],lats=positions['latitude']) )
@@ -385,7 +395,7 @@ class MainWindow(QtWidgets.QMainWindow):
         menuBar = self.menuBar()
 
         # Creating menus using a title
-        openMenu = menuBar.addAction("Select folder")
+        openMenu = menuBar.addAction("Select source folder")
         openMenu.triggered.connect(self.openfolderfunc)
         
         # autoMenu = menuBar.addMenu("Automatic processing")
@@ -403,12 +413,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.settingsMenu = menuBar.addAction("Settings")
         self.settingsMenu.triggered.connect(self.settings_func)     
         
+        self.showfolderbutton =  menuBar.addAction('Show data folder')
+        self.showfolderbutton.setEnabled(False)
+        self.showfolderbutton.triggered.connect(self.showfoldefunc)     
+       
+        
         self.exportmenue = menuBar.addMenu("Export")
         # self.emailsetupbutton =  self.exportmenue.addAction('Setup Email')
         # self.emailsetupbutton =  self.exportmenue.addAction('Send Email')
         self.emailsetupbutton =  self.exportmenue.addAction('Export interpolated grid')
         self.emailsetupbutton =  self.exportmenue.addAction('Export echogram')
-        
+       
         # self.exitautoMenu = menuBar.addAction("Send emails")
         # self.exitautoMenu.triggered.connect(self.update_plots)     
         
@@ -423,6 +438,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.checkbox_emails=QtWidgets.QCheckBox('Send mails ')
         self.checkbox_emails.setChecked(False)            
         toolbar.addWidget(self.checkbox_emails)
+        
+        self.checkbox_kriging=QtWidgets.QCheckBox('Interpolate map')
+        self.checkbox_kriging.setChecked(True)            
+        toolbar.addWidget(self.checkbox_kriging)
+        
         toolbar.addSeparator()
         
         self.checkbox_updateplot=QtWidgets.QCheckBox('Plot realtime ')
@@ -562,6 +582,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # os.chdir(workpath)
     def settings_func(self):
         print('s')
+    
+    def showfoldefunc(self):    
+         os.startfile(self.workpath)
         
     
     def exploration_mode(self):
@@ -570,16 +593,38 @@ class MainWindow(QtWidgets.QMainWindow):
         self.update_plots
 
         os.chdir(self.workpath)
-        nasc_done = glob.glob( '*_nasctable.h5' )
+        nasc_done = np.array( glob.glob( '*_nasctable.h5' ) )
         
         if len(nasc_done)>0:
+                        
+            nascfile_times=pd.to_datetime( nasc_done,format='D%Y%m%d-T%H%M%S_nasctable.h5' )     
+            ix_time= (nascfile_times >= self.startdate.dateTime().toPyDateTime() ) & (nascfile_times <= self.enddate.dateTime().toPyDateTime() )
+            nasc_load= nasc_done[ ix_time ]
+            
+            
             df_nasc=pd.DataFrame([])
-            for file in nasc_done:
+            for file in nasc_load:
                 df=pd.read_hdf(file,key='df')
-                df_nasc=pd.concat([df_nasc,df])
-            self.df_nasc=df_nasc.sort_values('time')   
+                df_nasc=pd.concat([df_nasc,df  ])
+            self.df_nasc=df_nasc.sort_values('ping_time')   
+            
+            
+            # geod = Geod("+ellps=WGS84")
+            # ll=geod.line_lengths(self.df_nasc['lon'], self.df_nasc['lat'])
+            # ll= np.concatenate([np.array([0]), ll ])
+            timedelta =np.concatenate([np.array([0]), np.diff( self.df_nasc.index.values ) /1e9 ])           
+            self.df_nasc['speed_ms'] = self.df_nasc['distance_m'] / timedelta.astype(float)
+            self.df_nasc['speed_knots']=self.df_nasc['speed_ms']*1.94384449
+            ix_too_slow = self.df_nasc['speed_knots'] < 5           
+            self.df_nasc.loc[ix_too_slow,'nasc']=np.nan           
 
             df_krig=self.df_nasc.resample('10min').mean() 
+            # df_krig=self.df_nasc
+            # print(  self.df_nasc.index.min().strftime('%Y-%m-%d %X') ) 
+            
+            # self.startdate.setDateTime(QtCore.QDateTime.fromString( nascfile_times.min().strftime('%Y-%m-%d %X') , "yyyy-MM-dd HH:mm:ss") )
+            # self.enddate.setDateTime(QtCore.QDateTime.fromString( nascfile_times.max().strftime('%Y-%m-%d %X') , "yyyy-MM-dd HH:mm:ss") )
+
             
             latlim=[ self.df_nasc['lat'].min() , self.df_nasc['lat'].max()  ]
             lonlim=[ self.df_nasc['lon'].min() , self.df_nasc['lon'].max()  ]
@@ -590,30 +635,68 @@ class MainWindow(QtWidgets.QMainWindow):
             sv_done = np.array( glob.glob( '*_sv_swarm.h5' ) )
             
             sv_times=pd.to_datetime( sv_done,format='D%Y%m%d-T%H%M%S_sv_swarm.h5' )
-            time_threshold=sv_times.max() - pd.to_timedelta( self.echogram_time_length.value() , 'min' )
-            sv_load= sv_done[ sv_times>time_threshold ]
-            df_nasc_load= df_nasc[ df_nasc.index>time_threshold ]
+            ix_time= (sv_times >= self.startdate.dateTime().toPyDateTime() ) & (sv_times <= self.enddate.dateTime().toPyDateTime() )
+            sv_load= sv_done[ ix_time ]
             # distance_covered= geod.line_length(lons=df_nasc_load['lon'],lats=df_nasc_load['lat']) / 1000  
-            distance_covered=df_nasc_load['distance_m'].sum() /1000         
+            distance_covered=self.df_nasc['distance_m'].sum() /1000         
             
             
             df_sv=pd.DataFrame([])
             for file in sv_load:
                 df=pd.read_hdf(file,key='df')
-                # df=df.resample('1min').mean()
+                df=df.resample('1min').mean()
                 df_sv=pd.concat([df_sv,df])
-  
+            # df_sv_plot=pd.DataFrame( resize(df_sv.values,[len(df_sv.columns,1000)] ))
+            # df_sv_plot.index= np.linspace( df_sv.index.min(), df_sv.index.max() ,1000)
+            self.df_sv=df_sv
+            
             self.canvas.fig.clf() 
             self.canvas.fig.set_facecolor('gray')
             
-            self.canvas.axes1 = self.canvas.fig.add_subplot(211)
+            self.canvas.axes1 = self.canvas.fig.add_subplot(121)
             self.canvas.axes1.set_facecolor('k')   
             
-            xt = [ -(df_sv.index.max()-df_sv.index.min() ) / (np.timedelta64(1, 's')*60), 0,  df_sv.columns[-1].astype(float) , df_sv.columns[0].astype(float)]
+            self.minut = np.linspace(-(df_sv.index.max()-df_sv.index.min() ) / (np.timedelta64(1, 's')*60), 0,len(df_sv))
+            
+            xt = [ self.minut[0], 0,  df_sv.columns[-1].astype(float) , df_sv.columns[0].astype(float)]
             # print(xt)
             img=self.canvas.axes1.imshow( np.rot90( df_sv.values ) , aspect='auto',cmap=self.cmap_ek80,origin = 'lower',vmin=-80,vmax=-40,extent=xt)        
-            self.canvas.fig.colorbar(img,label='$s_V$ [dB]')
+                
+            # r=   df_sv.columns.astype(float)         
+            # bottomdepth=[]
+            # for index, row in df_sv.iterrows():
+            #      bottomdepth.append( np.min(r[row==-999]) )
+            # t=np.linspace(-(df_sv.index.max()-df_sv.index.min() ) / (np.timedelta64(1, 's')*60), 0,len(df_sv))  
             
+            # self.canvas.axes1.plot( t,bottomdepth,'--w')        
+            
+            def on_xlims_change_echogram(event_ax):
+                # print("updated xlims: ", event_ax.get_xlim())
+                ix_dates = np.where( (self.minut > event_ax.get_xlim()[0]) & (self.minut < event_ax.get_xlim()[1]) )[0]
+                print( self.df_sv.index[ix_dates[0]] )
+                print( self.df_sv.index[ix_dates[-1]] )
+                ix = (self.df_nasc.index > self.df_sv.index[ix_dates[0]] )   & (self.df_nasc.index < self.df_sv.index[ix_dates[-1]]     )         
+                # print(self.df_nasc.loc[ix,:])
+                try:
+                    line = self.newline.pop(0)
+                    line.remove()
+            
+
+                except:
+                    print('noline')
+                self.newline=self.canvas.axes4.plot( self.df_nasc.loc[ix,'lon'],self.df_nasc.loc[ix,'lat'],'-r',transform=ccrs.PlateCarree())
+                self.canvas.draw()
+                # self.canvas.flush_events()        
+                    
+                
+            # def on_ylims_change(event_ax):
+            #     print("updated ylims: ", event_ax.get_ylim())
+            
+            self.canvas.axes1.callbacks.connect('xlim_changed', on_xlims_change_echogram)
+            # self.canvas.axes1.callbacks.connect('ylim_changed', on_ylims_change)
+            
+                        
+         
             self.canvas.axes1.set_ylabel('Depth [m]')
             self.canvas.axes1.set_xlabel('Time [min]')
             self.canvas.axes1.grid( alpha=0.5, linestyle='--')
@@ -621,14 +704,31 @@ class MainWindow(QtWidgets.QMainWindow):
             self.canvas.axes1_2=self.canvas.axes1.twiny()
             self.canvas.axes1_2.set_xlim([-distance_covered,0])            
             self.canvas.axes1_2.set_xlabel('Distance [km]')          
+
+            self.canvas.axes1_3=self.canvas.axes1.twinx()
+            self.canvas.axes1_3.set_ylabel('1 min avg. Krill NASC')          
+            self.canvas.fig.colorbar(img,label='$s_V$ [dB]',pad=0.15)
             
+            df_sv[df_sv==-999]=np.nan
+            r=df_sv.columns.astype(float)
+            cell_thickness=np.abs(np.mean(np.diff( r) ))               
+            nasc_swarm=4*np.pi*1852**2 * np.nansum( np.power(10, np.transpose(df_sv.values) /10)*cell_thickness ,axis=0)   
+            t=np.linspace(-(df_sv.index.max()-df_sv.index.min() ) / (np.timedelta64(1, 's')*60), 0,len(nasc_swarm)) 
+            self.canvas.axes1_3.plot(t,nasc_swarm,'-b')          
+            self.canvas.axes1_3.set_xlim([t[0],t[-1]])          
+            # self.canvas.axes1_3.set_xticks([])          
+            if np.max(nasc_swarm)==0:
+                self.canvas.axes1_3.set_ylim([0,1])                        
+            else:
+                self.canvas.axes1_3.set_ylim([0,2*np.max(nasc_swarm)])          
+      
     
-            self.canvas.axes3 = self.canvas.fig.add_subplot(223)
-            self.canvas.axes3.set_facecolor('gray')   
-            self.canvas.axes3.plot( self.df_nasc['nasc'],'.r' )   
-            self.canvas.axes3.plot( df_krig['nasc'] ,'-k' )   
-            self.canvas.axes3.grid()
-            self.canvas.axes3.set_title('Krill NASC')
+            # self.canvas.axes3 = self.canvas.fig.add_subplot(223)
+            # self.canvas.axes3.set_facecolor('gray')   
+            # self.canvas.axes3.plot( self.df_nasc['nasc'],'.r' )   
+            # self.canvas.axes3.plot( df_krig['nasc'] ,'-k' )   
+            # self.canvas.axes3.grid()
+            # self.canvas.axes3.set_title('Krill NASC')
      
 
      
@@ -637,7 +737,7 @@ class MainWindow(QtWidgets.QMainWindow):
             # extent = [lonlim[0]+0.5,lonlim[1]-0.5, latlim[0]+0.5,latlim[1]-0.5]
             #ax = plt.axes(projection=ccrs.PlateCarree(central_longitude= lonlim[0]+(lonlim[1]-lonlim[0])/2 ))
             
-            self.canvas.axes4 = self.canvas.fig.add_subplot(224,projection=ccrs.Orthographic(central_lon, central_lat))
+            self.canvas.axes4 = self.canvas.fig.add_subplot(122,projection=ccrs.Orthographic(central_lon, central_lat))
             self.canvas.axes4.set_facecolor('k')  
             
             # self.canvas.axes4.set_extent(extent)
@@ -649,43 +749,44 @@ class MainWindow(QtWidgets.QMainWindow):
             # if nasc_cutoff>10000:
             #     nasc_cutoff=10000
         
+            if self.checkbox_kriging.isChecked():            
 
-            try:
-                # a =df_krig['nasc'].values.copy()
-                # a[a>nasc_cutoff]=np.nan
-                
-                ix= (df_krig['lat'].notna()) & (df_krig['nasc'].notna() )                        
-
-                
-                OK = OrdinaryKriging(
-                    360+df_krig.loc[ix,'lon'].values,
-                    df_krig.loc[ix,'lat'].values,
-                    df_krig.loc[ix,'nasc'].values,
-                    coordinates_type='geographic',
-                    variogram_model="spherical",
-                    # variogram_parameters = { 'range' :  np.rad2deg( 50 / 6378  ) ,'sill':700000,'nugget':600000}
-                    )
-                 
-                d_lats=np.linspace(latlim[0],latlim[1],100)
-                d_lons=np.linspace(lonlim[0],lonlim[1],100)
-                
-                lat,lon=np.meshgrid( d_lats,d_lons )
-                
-                z1, ss1 = OK.execute("grid", d_lons, d_lats)                                  
-                z_grid=z1.data
-                z_grid[ ss1.data>np.percentile( ss1.data,75) ] =np.nan
-                # print(z_grid)
-                # sc=self.canvas.axes4.imshow( z_grid ,vmin=0,vmax=nasc_cutoff, origin='lower',aspect='auto',extent=[lonlim[0],lonlim[1],latlim[0],latlim[1]] )   
-
-                sc=self.canvas.axes4.contourf(lon, lat, np.transpose(z_grid), 30,cmap='plasma',
-                                  linestyles=None, transform=ccrs.PlateCarree())                
-            except:
-                print('kriging error')       
+                try:
+                    # a =df_krig['nasc'].values.copy()
+                    # a[a>nasc_cutoff]=np.nan
+                    
+                    ix= (df_krig['lat'].notna()) & (df_krig['nasc'].notna() )                        
+    
+                    
+                    OK = OrdinaryKriging(
+                        360+df_krig.loc[ix,'lon'].values,
+                        df_krig.loc[ix,'lat'].values,
+                        df_krig.loc[ix,'nasc'].values,
+                        coordinates_type='geographic',
+                        variogram_model="spherical",
+                        # variogram_parameters = { 'range' :  np.rad2deg( 50 / 6378  ) ,'sill':700000,'nugget':600000}
+                        )
+                     
+                    d_lats=np.linspace(latlim[0],latlim[1],100)
+                    d_lons=np.linspace(lonlim[0],lonlim[1],100)
+                    
+                    lat,lon=np.meshgrid( d_lats,d_lons )
+                    
+                    z1, ss1 = OK.execute("grid", d_lons, d_lats)                                  
+                    z_grid=z1.data
+                    z_grid[ ss1.data>np.percentile( ss1.data,75) ] =np.nan
+                    # print(z_grid)
+                    # sc=self.canvas.axes4.imshow( z_grid ,vmin=0,vmax=nasc_cutoff, origin='lower',aspect='auto',extent=[lonlim[0],lonlim[1],latlim[0],latlim[1]] )   
+    
+                    self.interpolationplot=self.canvas.axes4.contourf(lon, lat, np.transpose(z_grid), 30,cmap='plasma',
+                                      linestyles=None, transform=ccrs.PlateCarree())                
+                except:
+                    print('kriging error')       
                  
             sc=self.canvas.axes4.scatter( df_krig['lon'],df_krig['lat'],20,df_krig['nasc'],cmap='plasma',vmin=0,vmax=nasc_cutoff,edgecolor=None,transform=ccrs.PlateCarree() )   
            
-            ix_latest=df_krig.index.max()
-            self.canvas.axes4.plot( df_krig.loc[ix_latest,'lon'],df_krig.loc[ix_latest,'lat'],'xr',markersize=8 ,transform=ccrs.PlateCarree())
+
+
             self.canvas.axes4.set_adjustable('datalim')
            
             # self.canvas.axes4.coastlines(resolution='110m', zorder=200, color='white')
@@ -703,15 +804,184 @@ class MainWindow(QtWidgets.QMainWindow):
                    
             # sc=self.canvas.axes4.scatter( self.df_nasc['lon'],self.df_nasc['lat'],20,self.df_nasc['nasc'],vmin=0,vmax=nasc_cutoff,edgecolor='k' )   
             # self.canvas.axes4.grid()
-            self.canvas.fig.colorbar(sc,label='Krill NASC')
+            self.canvas.fig.colorbar(sc,label='10 min avg. Krill NASC')
             # self.canvas.show()
    
             self.canvas.fig.tight_layout()
             self.canvas.fig.subplots_adjust(wspace = .2)
             
             
+            # def on_xlims_change_map(event_ax):
+            #     print("updated xlims: ", event_ax.get_xlim())
+            #     print("updated ylims: ", event_ax.get_ylim())
+
+            #     # ix_latlim = np.where( (self.minut > event_ax.get_xlim()[0]) & (self.minut < event_ax.get_xlim()[1]) )[0]
+            #     # print( self.df_sv.index[ix_dates[0]] )
+            #     # print( self.df_sv.index[ix_dates[-1]] )
+            #     # ix = (self.df_nasc.index > self.df_sv.index[ix_dates[0]] )   & (self.df_nasc.index < self.df_sv.index[ix_dates[-1]]     )         
+            #     # # print(self.df_nasc.loc[ix,:])
+            #     # try:
+            #     #     line = self.interpolationplot.pop(0)
+            #     #     line.remove()
+            #     # except:
+            #     #     print('noline')
+            #     # self.newline=self.canvas.axes4.plot( self.df_nasc.loc[ix,'lon'],self.df_nasc.loc[ix,'lat'],'-r',transform=ccrs.PlateCarree())
+            #     # self.canvas.draw()
+            #     # # self.canvas.flush_events()        
+                    
+                
+            # # def on_ylims_change(event_ax):
+            # #     print("updated ylims: ", event_ax.get_ylim())
+            
+            # self.canvas.axes4.callbacks.connect('xlim_changed', on_xlims_change_map)
+            
+            
+            
             self.canvas.draw()
             self.canvas.flush_events()                              
+   
+
+        
+        # if len(nasc_done)>0:
+        #     df_nasc=pd.DataFrame([])
+        #     for file in nasc_done:
+        #         df=pd.read_hdf(file,key='df')
+        #         df_nasc=pd.concat([df_nasc,df])
+        #     self.df_nasc=df_nasc.sort_values('time')   
+
+        #     df_krig=self.df_nasc.resample('10min').mean() 
+            
+        #     latlim=[ self.df_nasc['lat'].min() , self.df_nasc['lat'].max()  ]
+        #     lonlim=[ self.df_nasc['lon'].min() , self.df_nasc['lon'].max()  ]
+    
+    
+    
+        #     # get onl the latest echograms
+        #     sv_done = np.array( glob.glob( '*_sv_swarm.h5' ) )
+            
+        #     sv_times=pd.to_datetime( sv_done,format='D%Y%m%d-T%H%M%S_sv_swarm.h5' )
+        #     time_threshold=sv_times.max() - pd.to_timedelta( self.echogram_time_length.value() , 'min' )
+        #     sv_load= sv_done[ sv_times>time_threshold ]
+        #     df_nasc_load= df_nasc[ df_nasc.index>time_threshold ]
+        #     # distance_covered= geod.line_length(lons=df_nasc_load['lon'],lats=df_nasc_load['lat']) / 1000  
+        #     distance_covered=df_nasc_load['distance_m'].sum() /1000         
+            
+            
+        #     df_sv=pd.DataFrame([])
+        #     for file in sv_load:
+        #         df=pd.read_hdf(file,key='df')
+        #         # df=df.resample('1min').mean()
+        #         df_sv=pd.concat([df_sv,df])
+  
+        #     self.canvas.fig.clf() 
+        #     self.canvas.fig.set_facecolor('gray')
+            
+        #     self.canvas.axes1 = self.canvas.fig.add_subplot(211)
+        #     self.canvas.axes1.set_facecolor('k')   
+            
+        #     xt = [ -(df_sv.index.max()-df_sv.index.min() ) / (np.timedelta64(1, 's')*60), 0,  df_sv.columns[-1].astype(float) , df_sv.columns[0].astype(float)]
+        #     # print(xt)
+        #     img=self.canvas.axes1.imshow( np.rot90( df_sv.values ) , aspect='auto',cmap=self.cmap_ek80,origin = 'lower',vmin=-80,vmax=-40,extent=xt)        
+        #     self.canvas.fig.colorbar(img,label='$s_V$ [dB]')
+            
+        #     self.canvas.axes1.set_ylabel('Depth [m]')
+        #     self.canvas.axes1.set_xlabel('Time [min]')
+        #     self.canvas.axes1.grid( alpha=0.5, linestyle='--')
+
+        #     self.canvas.axes1_2=self.canvas.axes1.twiny()
+        #     self.canvas.axes1_2.set_xlim([-distance_covered,0])            
+        #     self.canvas.axes1_2.set_xlabel('Distance [km]')          
+            
+    
+        #     self.canvas.axes3 = self.canvas.fig.add_subplot(223)
+        #     self.canvas.axes3.set_facecolor('gray')   
+        #     self.canvas.axes3.plot( self.df_nasc['nasc'],'.r' )   
+        #     self.canvas.axes3.plot( df_krig['nasc'] ,'-k' )   
+        #     self.canvas.axes3.grid()
+        #     self.canvas.axes3.set_title('Krill NASC')
+     
+
+     
+        #     central_lon= lonlim[0]+(lonlim[1]-lonlim[0])/2
+        #     central_lat = latlim[0]+(latlim[1]-latlim[0])/2
+        #     # extent = [lonlim[0]+0.5,lonlim[1]-0.5, latlim[0]+0.5,latlim[1]-0.5]
+        #     #ax = plt.axes(projection=ccrs.PlateCarree(central_longitude= lonlim[0]+(lonlim[1]-lonlim[0])/2 ))
+            
+        #     self.canvas.axes4 = self.canvas.fig.add_subplot(224,projection=ccrs.Orthographic(central_lon, central_lat))
+        #     self.canvas.axes4.set_facecolor('k')  
+            
+        #     # self.canvas.axes4.set_extent(extent)
+              
+
+        #     ixnan=df_krig['nasc'] > 10000     
+        #     df_krig.loc[ixnan,'nasc']=np.nan
+        #     nasc_cutoff=df_krig['nasc'].max()
+        #     # if nasc_cutoff>10000:
+        #     #     nasc_cutoff=10000
+        
+
+        #     try:
+        #         # a =df_krig['nasc'].values.copy()
+        #         # a[a>nasc_cutoff]=np.nan
+                
+        #         ix= (df_krig['lat'].notna()) & (df_krig['nasc'].notna() )                        
+
+                
+        #         OK = OrdinaryKriging(
+        #             360+df_krig.loc[ix,'lon'].values,
+        #             df_krig.loc[ix,'lat'].values,
+        #             df_krig.loc[ix,'nasc'].values,
+        #             coordinates_type='geographic',
+        #             variogram_model="spherical",
+        #             # variogram_parameters = { 'range' :  np.rad2deg( 50 / 6378  ) ,'sill':700000,'nugget':600000}
+        #             )
+                 
+        #         d_lats=np.linspace(latlim[0],latlim[1],100)
+        #         d_lons=np.linspace(lonlim[0],lonlim[1],100)
+                
+        #         lat,lon=np.meshgrid( d_lats,d_lons )
+                
+        #         z1, ss1 = OK.execute("grid", d_lons, d_lats)                                  
+        #         z_grid=z1.data
+        #         z_grid[ ss1.data>np.percentile( ss1.data,75) ] =np.nan
+        #         # print(z_grid)
+        #         # sc=self.canvas.axes4.imshow( z_grid ,vmin=0,vmax=nasc_cutoff, origin='lower',aspect='auto',extent=[lonlim[0],lonlim[1],latlim[0],latlim[1]] )   
+
+        #         sc=self.canvas.axes4.contourf(lon, lat, np.transpose(z_grid), 30,cmap='plasma',
+        #                           linestyles=None, transform=ccrs.PlateCarree())                
+        #     except:
+        #         print('kriging error')       
+                 
+        #     sc=self.canvas.axes4.scatter( df_krig['lon'],df_krig['lat'],20,df_krig['nasc'],cmap='plasma',vmin=0,vmax=nasc_cutoff,edgecolor=None,transform=ccrs.PlateCarree() )   
+           
+        #     ix_latest=df_krig.index.max()
+        #     self.canvas.axes4.plot( df_krig.loc[ix_latest,'lon'],df_krig.loc[ix_latest,'lat'],'xr',markersize=8 ,transform=ccrs.PlateCarree())
+        #     self.canvas.axes4.set_adjustable('datalim')
+           
+        #     # self.canvas.axes4.coastlines(resolution='110m', zorder=200, color='white')
+        #     self.canvas.axes4.add_feature(cart.feature.LAND, zorder=100, color='white')
+        #     # self.canvas.axes4.show()
+        #     # self.canvas.axes4.add_feature(cart.feature.GSHHSFeature(edgecolor='w'))
+
+
+
+        #     gl=self.canvas.axes4.gridlines(draw_labels=True,linewidth=1, color='gray', alpha=0.5, linestyle='--')
+        #     # self.canvas.axes4.tick_params(axis="y",direction="in", pad=-22)
+        #     # self.canvas.axes4.tick_params(axis="x",direction="in", pad=-15)
+        #     gl.xlabels_top = False
+        #     gl.ylabels_right = False          
+                   
+        #     # sc=self.canvas.axes4.scatter( self.df_nasc['lon'],self.df_nasc['lat'],20,self.df_nasc['nasc'],vmin=0,vmax=nasc_cutoff,edgecolor='k' )   
+        #     # self.canvas.axes4.grid()
+        #     self.canvas.fig.colorbar(sc,label='Krill NASC')
+        #     # self.canvas.show()
+   
+        #     self.canvas.fig.tight_layout()
+        #     self.canvas.fig.subplots_adjust(wspace = .2)
+            
+            
+        #     self.canvas.draw()
+        #     self.canvas.flush_events()                              
       
 
 
@@ -735,8 +1005,12 @@ class MainWindow(QtWidgets.QMainWindow):
                     
                     datetimestring=re.search('D\d\d\d\d\d\d\d\d-T\d\d\d\d\d\d',fname).group()
                     dates.append( pd.to_datetime( datetimestring,format='D%Y%m%d-T%H%M%S' ) )
+                dates=np.array(dates)
                 self.df_files['date'] = dates
                 
+                self.startdate.setDateTime(QtCore.QDateTime.fromString( dates.min().strftime('%Y-%m-%d %X') , "yyyy-MM-dd HH:mm:ss") )
+                self.enddate.setDateTime(QtCore.QDateTime.fromString( dates.max().strftime('%Y-%m-%d %X') , "yyyy-MM-dd HH:mm:ss") )
+
             
                 # ix_time= (self.df_files['date'] >= self.startdate.dateTime().toPyDateTime() ) & (self.df_files['date'] <= self.enddate.dateTime().toPyDateTime() )
                 
@@ -766,7 +1040,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.startautoMenu.setEnabled(True)
                 self.checkbox_updateplot.setEnabled(True)            
                 self.checkbox_manual.setEnabled(True)            
-        
+                self.showfolderbutton.setEnabled(True)
+
                 self.workpath=  os.path.join(self.folder_source,'krill_data')
                 if not os.path.exists(self.workpath):
                     os.mkdir( self.workpath )
@@ -826,7 +1101,7 @@ class MainWindow(QtWidgets.QMainWindow):
             for file in nasc_load:
                 df=pd.read_hdf(file,key='df')
                 df_nasc=pd.concat([df_nasc,df  ])
-            self.df_nasc=df_nasc.sort_values('time')   
+            self.df_nasc=df_nasc.sort_values('ping_time')   
             
             
             # geod = Geod("+ellps=WGS84")
@@ -907,7 +1182,7 @@ class MainWindow(QtWidgets.QMainWindow):
             cell_thickness=np.abs(np.mean(np.diff( r) ))               
             nasc_swarm=4*np.pi*1852**2 * np.nansum( np.power(10, np.transpose(df_sv.values) /10)*cell_thickness ,axis=0)   
             t=np.linspace(-(df_sv.index.max()-df_sv.index.min() ) / (np.timedelta64(1, 's')*60), 0,len(nasc_swarm)) 
-            self.canvas.axes1_3.plot(t,nasc_swarm,'-r')          
+            self.canvas.axes1_3.plot(t,nasc_swarm,'-b')          
             self.canvas.axes1_3.set_xlim([t[0],t[-1]])          
             # self.canvas.axes1_3.set_xticks([])          
             if np.max(nasc_swarm)==0:
@@ -942,38 +1217,39 @@ class MainWindow(QtWidgets.QMainWindow):
             # if nasc_cutoff>10000:
             #     nasc_cutoff=10000
         
+            if self.checkbox_kriging.isChecked():            
 
-            try:
-                # a =df_krig['nasc'].values.copy()
-                # a[a>nasc_cutoff]=np.nan
-                
-                ix= (df_krig['lat'].notna()) & (df_krig['nasc'].notna() )                        
-
-                
-                OK = OrdinaryKriging(
-                    360+df_krig.loc[ix,'lon'].values,
-                    df_krig.loc[ix,'lat'].values,
-                    df_krig.loc[ix,'nasc'].values,
-                    coordinates_type='geographic',
-                    variogram_model="spherical",
-                    # variogram_parameters = { 'range' :  np.rad2deg( 50 / 6378  ) ,'sill':700000,'nugget':600000}
-                    )
-                 
-                d_lats=np.linspace(latlim[0],latlim[1],100)
-                d_lons=np.linspace(lonlim[0],lonlim[1],100)
-                
-                lat,lon=np.meshgrid( d_lats,d_lons )
-                
-                z1, ss1 = OK.execute("grid", d_lons, d_lats)                                  
-                z_grid=z1.data
-                z_grid[ ss1.data>np.percentile( ss1.data,75) ] =np.nan
-                # print(z_grid)
-                # sc=self.canvas.axes4.imshow( z_grid ,vmin=0,vmax=nasc_cutoff, origin='lower',aspect='auto',extent=[lonlim[0],lonlim[1],latlim[0],latlim[1]] )   
-
-                sc=self.canvas.axes4.contourf(lon, lat, np.transpose(z_grid), 30,cmap='plasma',
-                                  linestyles=None, transform=ccrs.PlateCarree())                
-            except:
-                print('kriging error')       
+                try:
+                    # a =df_krig['nasc'].values.copy()
+                    # a[a>nasc_cutoff]=np.nan
+                    
+                    ix= (df_krig['lat'].notna()) & (df_krig['nasc'].notna() )                        
+    
+                    
+                    OK = OrdinaryKriging(
+                        360+df_krig.loc[ix,'lon'].values,
+                        df_krig.loc[ix,'lat'].values,
+                        df_krig.loc[ix,'nasc'].values,
+                        coordinates_type='geographic',
+                        variogram_model="spherical",
+                        # variogram_parameters = { 'range' :  np.rad2deg( 50 / 6378  ) ,'sill':700000,'nugget':600000}
+                        )
+                     
+                    d_lats=np.linspace(latlim[0],latlim[1],100)
+                    d_lons=np.linspace(lonlim[0],lonlim[1],100)
+                    
+                    lat,lon=np.meshgrid( d_lats,d_lons )
+                    
+                    z1, ss1 = OK.execute("grid", d_lons, d_lats)                                  
+                    z_grid=z1.data
+                    z_grid[ ss1.data>np.percentile( ss1.data,75) ] =np.nan
+                    # print(z_grid)
+                    # sc=self.canvas.axes4.imshow( z_grid ,vmin=0,vmax=nasc_cutoff, origin='lower',aspect='auto',extent=[lonlim[0],lonlim[1],latlim[0],latlim[1]] )   
+    
+                    sc=self.canvas.axes4.contourf(lon, lat, np.transpose(z_grid), 30,cmap='plasma',
+                                      linestyles=None, transform=ccrs.PlateCarree())                
+                except:
+                    print('kriging error')       
                  
             sc=self.canvas.axes4.scatter( df_krig['lon'],df_krig['lat'],20,df_krig['nasc'],cmap='plasma',vmin=0,vmax=nasc_cutoff,edgecolor=None,transform=ccrs.PlateCarree() )   
            
